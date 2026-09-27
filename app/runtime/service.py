@@ -10,6 +10,8 @@ from app.intelligence.social_cooccurrence import SocialCoOccurrenceFilter
 from app.intelligence.wallet_features import refresh_wallet_features
 from app.runtime.safety import assert_paper_runtime
 from app.simulation.position_manager import manage_open_positions
+from app.intelligence.wallet_reputation import refresh_reputation
+from app.intelligence.wallet_graph import rebuild_wallet_graph
 
 LOGGER = logging.getLogger("live.engine")
 
@@ -63,6 +65,25 @@ async def _wallet_feature_monitor() -> None:
         await asyncio.sleep(interval)
 
 
+
+async def _intelligence_monitor() -> None:
+    interval = float(os.getenv("INTELLIGENCE_REFRESH_INTERVAL_SEC", "120"))
+    while True:
+        try:
+            with get_connection() as conn, conn.cursor() as cursor:
+                cursor.execute("SELECT wallet_address FROM tracked_wallets WHERE network='mainnet-beta' AND is_tracked=TRUE")
+                wallets = [row[0] for row in cursor.fetchall()]
+            for wallet in wallets:
+                await asyncio.to_thread(refresh_reputation, wallet)
+            edges = await asyncio.to_thread(rebuild_wallet_graph)
+            LOGGER.info("INTELLIGENCE_REFRESH wallets=%s graph_edges=%s", len(wallets), edges)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("intelligence monitor failed")
+        await asyncio.sleep(interval)
+
+
 async def run_live_engine() -> None:
     assert_paper_runtime()
     tasks = [
@@ -70,6 +91,7 @@ async def run_live_engine() -> None:
         asyncio.create_task(_position_monitor(), name="paper-position-monitor"),
         asyncio.create_task(_social_monitor(), name="social-confirmation-monitor"),
         asyncio.create_task(_wallet_feature_monitor(), name="wallet-feature-monitor"),
+        asyncio.create_task(_intelligence_monitor(), name="intelligence-monitor"),
     ]
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
     for task in pending:
