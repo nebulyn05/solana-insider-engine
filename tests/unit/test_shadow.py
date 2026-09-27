@@ -15,28 +15,20 @@ def model(**overrides):
 
 def test_shadow_buy_sell_is_sellable() -> None:
     result = LocalShadowSimulator().run(model(), Decimal("1"))
-
     assert result.sellable is True
     assert result.sell is not None
     assert result.round_trip_pnl_sol == Decimal("0")
 
 
 def test_shadow_rejects_disabled_sell() -> None:
-    result = LocalShadowSimulator().run(
-        model(sell_enabled=False),
-        Decimal("1"),
-    )
-
+    result = LocalShadowSimulator().run(model(sell_enabled=False), Decimal("1"))
     assert result.sellable is False
     assert result.rejection_reason == "sell_disabled"
+    assert result.round_trip_pnl_sol == Decimal("-1")
 
 
 def test_shadow_models_sell_tax() -> None:
-    result = LocalShadowSimulator().run(
-        model(sell_fee_bps=Decimal("500")),
-        Decimal("1"),
-    )
-
+    result = LocalShadowSimulator().run(model(sell_fee_bps=Decimal("500")), Decimal("1"))
     assert result.sellable is True
     assert result.round_trip_pnl_sol < Decimal("0")
     assert result.round_trip_return_bps == Decimal("-500")
@@ -44,9 +36,10 @@ def test_shadow_models_sell_tax() -> None:
 
 def test_shadow_rejects_excessive_sell() -> None:
     result = LocalShadowSimulator().run(
-        model(max_sell_fraction=Decimal("0.1"), liquidity_sol=Decimal("0.05")),
+        model(max_sell_fraction=Decimal("1"), liquidity_sol=Decimal("0.05")),
         Decimal("1"),
     )
-
-    assert result.sellable is True
-    assert result.sell is not None
+    assert result.sellable is False
+    assert result.sell is None
+    assert result.rejection_reason == "insufficient_shadow_liquidity"
+    assert result.round_trip_pnl_sol == Decimal("-1")

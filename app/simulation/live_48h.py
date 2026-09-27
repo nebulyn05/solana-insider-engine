@@ -91,6 +91,9 @@ def _insert_simulated_entry(
     quantity = notional_sol / executed_price
     slippage_amount = executed_price - requested_price
     trade_id = str(uuid4())
+    signal_created_at = signal_created_at or _utc_now()
+    detected_at = _utc_now()
+    execution_at = _utc_now()
 
     metadata = json.dumps({
         "detector": "phase5_48h_simulation",
@@ -132,6 +135,12 @@ def _insert_simulated_entry(
                 slippage_bps,
                 slippage_amount * quantity,
                 signal_id,
+                signal_created_at,
+                detected_at,
+                (EXTRACT(EPOCH FROM (detected_at - signal_created_at)) * 1000),
+                (EXTRACT(EPOCH FROM (execution_at - detected_at)) * 1000),
+                (EXTRACT(EPOCH FROM (execution_at - detected_at)) * 1000),
+                (EXTRACT(EPOCH FROM (execution_at - signal_created_at)) * 1000),
                 metadata,
             ),
         )
