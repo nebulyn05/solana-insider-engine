@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import timezone
 
 from app.social.models import SocialPost
 from app.social.solana_mints import extract_solana_mints
@@ -68,8 +68,11 @@ def test_websocket_handler_rejects_unsubscribed_source(monkeypatch) -> None:
         async def send(self, message: str) -> None:
             self.sent.append(message)
 
+    socket = FakeSocket()
+
     async def run() -> None:
-        await ingestor.handler(FakeSocket())  # type: ignore[arg-type]
+        await ingestor.handler(socket)  # type: ignore[arg-type]
 
     asyncio.run(run())
-    assert json.loads(FakeSocket.__dict__.get("unused", "null") or "null") is None
+    response = json.loads(socket.sent[0])
+    assert response == {"ok": False, "error": "source_not_subscribed"}
