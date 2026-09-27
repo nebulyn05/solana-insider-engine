@@ -38,7 +38,7 @@ def _b58(data: bytes) -> str:
     return "1" * leading_zeroes + "".join(reversed(encoded))
 
 
-def _fresh_from_rpc(wallet: str) -> bool:
+def _fresh_from_rpc(wallet: str, observed_signature: str) -> bool:
     payload = json.dumps({
         "jsonrpc": "2.0",
         "id": 1,
@@ -55,7 +55,8 @@ def _fresh_from_rpc(wallet: str) -> bool:
         body = json.load(response)
     if body.get("error"):
         raise RuntimeError(f"Solana RPC error for {wallet}: {body['error']}")
-    return not body.get("result")
+    signatures = body.get("result") or []
+    return all(item.get("signature") == observed_signature for item in signatures)
 
 
 def _source_and_deltas(
@@ -107,7 +108,9 @@ def normalize_cex_outflow(
 
 async def enrich_freshness(events: list[CexOutflow]) -> list[CexOutflow]:
     async def check(event: CexOutflow) -> CexOutflow | None:
-        fresh = await asyncio.to_thread(_fresh_from_rpc, event.destination_wallet)
+        fresh = await asyncio.to_thread(
+            _fresh_from_rpc, event.destination_wallet, event.signature
+        )
         return CexOutflow(**{**event.__dict__, "fresh_on_chain": True}) if fresh else None
 
     checked = await asyncio.gather(*(check(event) for event in events))
