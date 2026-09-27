@@ -4,8 +4,10 @@ import asyncio
 import logging
 import os
 
+from app.database.connection import get_connection
 from app.ingestion.mainnet_wallet_stream import run_forever as run_wallet_stream
 from app.intelligence.social_cooccurrence import SocialCoOccurrenceFilter
+from app.intelligence.wallet_features import refresh_wallet_features
 from app.runtime.safety import assert_paper_runtime
 from app.simulation.position_manager import manage_open_positions
 
@@ -42,12 +44,32 @@ async def _social_monitor() -> None:
         await asyncio.sleep(interval)
 
 
+async def _wallet_feature_monitor() -> None:
+    interval = float(os.getenv("WALLET_FEATURE_REFRESH_INTERVAL_SEC", "60"))
+    while True:
+        try:
+            with get_connection() as conn, conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT wallet_address FROM tracked_wallets
+                       WHERE network='mainnet-beta' AND is_tracked=TRUE"""
+                )
+                wallets = [row[0] for row in cursor.fetchall()]
+            for wallet in wallets:
+                await asyncio.to_thread(refresh_wallet_features, wallet)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("wallet feature refresh failed")
+        await asyncio.sleep(interval)
+
+
 async def run_live_engine() -> None:
     assert_paper_runtime()
     tasks = [
         asyncio.create_task(run_wallet_stream(), name="mainnet-wallet-stream"),
         asyncio.create_task(_position_monitor(), name="paper-position-monitor"),
         asyncio.create_task(_social_monitor(), name="social-confirmation-monitor"),
+        asyncio.create_task(_wallet_feature_monitor(), name="wallet-feature-monitor"),
     ]
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
     for task in pending:
