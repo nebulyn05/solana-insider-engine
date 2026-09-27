@@ -6,19 +6,19 @@ import logging
 import os
 import urllib.request
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 import websockets
 
 from app.database.connection import get_connection
-from app.events.bus import AsyncEventBus, EngineEvent
 from app.ingestion.dex_decoder import DexTrade, decode_wallet_swap
+from app.ingestion.helius_parser import decode_with_helius
+from app.events.bus import EngineEvent
 from app.runtime.pipeline import LivePaperPipeline
 
 LOGGER = logging.getLogger("mainnet.wallet_stream")
 MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-STREAM_NAME = "mainnet-wallets-v2"
+STREAM_NAME = "mainnet-wallets-v3"
 
 
 def _rpc(url: str, method: str, params: list[Any]) -> dict[str, Any]:
@@ -56,17 +56,17 @@ def _verify_mainnet(rpc_url: str) -> None:
         raise RuntimeError(f"not mainnet: genesis={result}")
 
 
-def _checkpoint() -> tuple[int | None, str | None]:
+def _checkpoint(wallet: str) -> tuple[int | None, str | None]:
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             "SELECT last_slot,last_signature FROM stream_checkpoints WHERE stream_name=%s",
-            (STREAM_NAME,),
+            (f"{STREAM_NAME}:{wallet}",),
         )
         row = cursor.fetchone()
         return (row[0], row[1]) if row else (None, None)
 
 
-def _save_checkpoint(slot: int | None, signature: str | None) -> None:
+def _save_checkpoint(wallet: str, slot: int | None, signature: str | None) -> None:
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """INSERT INTO stream_checkpoints(stream_name,last_slot,last_signature,updated_at)
@@ -75,7 +75,7 @@ def _save_checkpoint(slot: int | None, signature: str | None) -> None:
                SET last_slot=EXCLUDED.last_slot,
                    last_signature=EXCLUDED.last_signature,
                    updated_at=NOW()""",
-            (STREAM_NAME, slot, signature),
+            (f"{STREAM_NAME}:{wallet}", slot, signature),
         )
         conn.commit()
 
@@ -100,14 +100,24 @@ def _claim_transaction(
                 wallet, json.dumps(tx),
             ),
         )
-        claimed = cursor.fetchone() is not None
+        inserted = cursor.fetchone()
+        if inserted:
+            conn.commit()
+            return True
+
+        # A single Solana transaction can touch multiple tracked wallets.
+        # Permit each wallet to be processed while keeping signature-level
+        # transaction storage deduplicated.
+        cursor.execute(
+            "SELECT wallet_address FROM observed_transactions WHERE signature=%s",
+            (signature,),
+        )
+        existing = cursor.fetchone()
         conn.commit()
-        return claimed
+        return existing is not None and existing[0] != wallet
 
 
 def _persist_dex_observation(trade: DexTrade, signature: str, tx: dict[str, Any]) -> None:
-    meta = tx.get("meta") or {}
-    slot = tx.get("slot")
     block_time = tx.get("blockTime")
     observed = (
         datetime.fromtimestamp(block_time, tz=timezone.utc)
@@ -133,8 +143,7 @@ def _persist_dex_observation(trade: DexTrade, signature: str, tx: dict[str, Any]
         cursor.execute(
             """INSERT INTO token_metadata(mint_address,network)
                VALUES(%s,'mainnet-beta')
-               ON CONFLICT(mint_address) DO UPDATE
-               SET last_updated_at=NOW()""",
+               ON CONFLICT(mint_address) DO UPDATE SET last_updated_at=NOW()""",
             (trade.output_mint,),
         )
         cursor.execute(
@@ -168,6 +177,18 @@ def _record_buy(trade: DexTrade, signature: str, observed: datetime) -> None:
         conn.commit()
 
 
+def _decode_trades(wallet: str, signature: str, tx: dict[str, Any]) -> list[DexTrade]:
+    # Helius Parsed Events supplies IDL-backed instruction decoding when an
+    # API key is configured. The local decoder remains the fallback.
+    try:
+        parsed = decode_with_helius(wallet, signature, tx)
+        if parsed:
+            return parsed
+    except Exception:
+        LOGGER.exception("helius parser failed; using local decoder")
+    return decode_wallet_swap(wallet, tx, signature=signature)
+
+
 def _process_transaction(
     rpc_url: str,
     wallet: str,
@@ -193,7 +214,7 @@ def _process_transaction(
     if not _claim_transaction(signature, tx.get("slot"), tx.get("blockTime"), wallet, tx):
         return
 
-    trades = decode_wallet_swap(wallet, tx, signature=signature)
+    trades = _decode_trades(wallet, signature, tx)
     for trade in trades:
         _persist_dex_observation(trade, signature, tx)
         observed = (
@@ -202,19 +223,22 @@ def _process_transaction(
             else datetime.now(timezone.utc)
         )
         _record_buy(trade, signature, observed)
-        event = EngineEvent(
-            event_type="BUY_OBSERVED",
-            occurred_at=observed,
-            payload={
-                "wallet_address": wallet,
-                "token_mint": trade.output_mint,
-                "price_sol": str(trade.price_sol),
-                "signature": signature,
-                "dex_name": trade.dex_name,
-                "confidence": str(trade.confidence),
-            },
+        loop.create_task(
+            pipeline.handle(
+                EngineEvent(
+                    event_type="BUY_OBSERVED",
+                    occurred_at=observed,
+                    payload={
+                        "wallet_address": wallet,
+                        "token_mint": trade.output_mint,
+                        "price_sol": str(trade.price_sol),
+                        "signature": signature,
+                        "dex_name": trade.dex_name,
+                        "confidence": str(trade.confidence),
+                    },
+                )
+            )
         )
-        loop.create_task(pipeline.handle(event))
         LOGGER.info(
             "DEX_BUY wallet=%s mint=%s dex=%s price_sol=%s signature=%s confidence=%s",
             wallet, trade.output_mint, trade.dex_name, trade.price_sol,
@@ -222,31 +246,32 @@ def _process_transaction(
         )
 
 
-def _recover(
+def _recover_wallet(
     rpc_url: str,
-    wallets: list[str],
+    wallet: str,
     pipeline: LivePaperPipeline,
     loop: asyncio.AbstractEventLoop,
 ) -> None:
-    _, last_signature = _checkpoint()
-    for wallet in wallets:
-        signatures = _rpc(
-            rpc_url,
-            "getSignaturesForAddress",
-            [wallet, {"limit": 1000, "commitment": "confirmed"}],
-        ).get("result") or []
-        pending = []
-        for item in signatures:
-            signature = item.get("signature")
-            if not signature:
-                continue
-            if signature == last_signature:
-                break
-            if item.get("err") is None:
-                pending.append((item.get("slot"), signature))
-        for slot, signature in reversed(pending):
-            _process_transaction(rpc_url, wallet, signature, pipeline, loop)
-            _save_checkpoint(slot, signature)
+    _, last_signature = _checkpoint(wallet)
+    signatures = _rpc(
+        rpc_url,
+        "getSignaturesForAddress",
+        [wallet, {"limit": 1000, "commitment": "confirmed"}],
+    ).get("result") or []
+
+    pending = []
+    for item in signatures:
+        signature = item.get("signature")
+        if not signature:
+            continue
+        if signature == last_signature:
+            break
+        if item.get("err") is None:
+            pending.append((item.get("slot"), signature))
+
+    for slot, signature in reversed(pending):
+        _process_transaction(rpc_url, wallet, signature, pipeline, loop)
+        _save_checkpoint(wallet, slot, signature)
 
 
 async def run_forever() -> None:
@@ -265,13 +290,17 @@ async def run_forever() -> None:
             raise RuntimeError("No tracked mainnet wallets configured")
 
         try:
-            _recover(rpc_url, wallets, pipeline, loop)
+            for wallet in wallets:
+                await asyncio.to_thread(_recover_wallet, rpc_url, wallet, pipeline, loop)
+
             async with websockets.connect(
                 ws_url, ping_interval=20, ping_timeout=20, max_size=8_000_000
             ) as ws:
                 subscription_wallet: dict[int, str] = {}
+                request_wallet: dict[int, str] = {}
                 request_id = 1
                 for wallet in wallets:
+                    request_wallet[request_id] = wallet
                     await ws.send(json.dumps({
                         "jsonrpc": "2.0",
                         "id": request_id,
@@ -282,13 +311,8 @@ async def run_forever() -> None:
 
                 while True:
                     message = json.loads(await ws.recv())
-                    if message.get("result") is not None and message.get("id"):
-                        # The subscription id is returned asynchronously. Map it
-                        # to the wallet using response order.
-                        pending_id = int(message["id"])
-                        wallet_index = pending_id - 1
-                        if 0 <= wallet_index < len(wallets):
-                            subscription_wallet[int(message["result"])] = wallets[wallet_index]
+                    if message.get("result") is not None and message.get("id") in request_wallet:
+                        subscription_wallet[int(message["result"])] = request_wallet[int(message["id"])]
                         continue
 
                     if message.get("method") != "logsNotification":
@@ -304,7 +328,7 @@ async def run_forever() -> None:
 
                     _process_transaction(rpc_url, wallet, signature, pipeline, loop)
                     slot = (params.get("result") or {}).get("context", {}).get("slot")
-                    _save_checkpoint(slot, signature)
+                    _save_checkpoint(wallet, slot, signature)
 
         except asyncio.CancelledError:
             raise
