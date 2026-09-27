@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS simulated_trades (
     slippage_amount NUMERIC(38, 18) NOT NULL DEFAULT 0,
     fees NUMERIC(38, 18) NOT NULL DEFAULT 0,
     realized_pnl NUMERIC(38, 18),
-    signal_id VARCHAR(128),
+    signal_id VARCHAR(128) UNIQUE,
     entry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     exit_at TIMESTAMPTZ,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
