@@ -100,6 +100,6 @@ def refresh_wallet_features(wallet_address: str) -> WalletFeatures:
     return WalletFeatures(
         wallet_address, int(observed or 0), int(distinct_tokens or 0),
         Decimal(str(avg_interval)) if avg_interval is not None else None,
-        shared, int(row[3] or 0), success, losses,
+        shared, 0, int(row[3] or 0), success, losses,
         Decimal(str(win_rate)) if win_rate is not None else None, reputation,
     )
