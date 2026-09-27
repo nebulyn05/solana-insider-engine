@@ -70,6 +70,13 @@ def _token_deltas(wallet: str, meta: dict[str, Any]) -> tuple[list[tuple[str, De
     return spent, received
 
 
+def _token_decimals(meta: dict[str, Any], mint: str) -> int:
+    for item in (meta.get("postTokenBalances") or []) + (meta.get("preTokenBalances") or []):
+        if item.get("mint") == mint:
+            return int((item.get("uiTokenAmount") or {}).get("decimals", 0))
+    return 0
+
+
 def _invoked_program_ids(tx: dict[str, Any]) -> set[str]:
     message = ((tx.get("transaction") or {}).get("message") or {})
     ids: set[str] = set()
@@ -139,8 +146,9 @@ def decode_wallet_swap(wallet: str, tx: dict[str, Any], *, signature: str) -> li
                 "signature": signature,
                 "invoked_program_ids": sorted(invoked & set(programs)),
                 "swap_log_detected": swap_log,
-                "decoder": "mainnet-dex-evidence-v2",
+                "decoder": "mainnet-dex-evidence-v3",
                 "input_asset": "SOL",
+                "output_decimals": _token_decimals(meta, output_mint),
             },
         )
         for output_mint, output_amount in received
