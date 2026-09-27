@@ -6,6 +6,7 @@ import os
 
 from app.ingestion.mainnet_wallet_stream import run_forever as run_wallet_stream
 from app.intelligence.social_cooccurrence import SocialCoOccurrenceFilter
+from app.runtime.safety import assert_paper_runtime
 from app.simulation.position_manager import manage_open_positions
 
 LOGGER = logging.getLogger("live.engine")
@@ -42,6 +43,7 @@ async def _social_monitor() -> None:
 
 
 async def run_live_engine() -> None:
+    assert_paper_runtime()
     tasks = [
         asyncio.create_task(run_wallet_stream(), name="mainnet-wallet-stream"),
         asyncio.create_task(_position_monitor(), name="paper-position-monitor"),
