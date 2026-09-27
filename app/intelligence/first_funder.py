@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.intelligence.ancestry.engine import FundingEdge, MAX_ANCESTRY_HOPS, trace_ancestry
 
@@ -55,10 +55,7 @@ def _match_buyer(
             root_wallet=deployer_wallet,
             root_is_deployer=True,
             deployer_in_lineage=True,
-            lineage_id=trace_ancestry(
-                buyer_wallet,
-                max_hops=1,
-            ).lineage_id,
+            lineage_id=uuid4(),
             hops=0,
             edges=(),
         )
