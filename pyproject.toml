@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "solana-insider-engine"
 version = "0.1.0"
-description = "Simulation-first Solana wallet intelligence and paper-trading backend"
+description = "Mainnet Solana wallet intelligence and paper-trading backend"
 requires-python = ">=3.11"
 dependencies = [
     "psycopg2-binary>=2.9.9,<3.0",
