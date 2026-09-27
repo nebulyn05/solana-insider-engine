@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS tracked_wallets (
     multi_hop_label VARCHAR(128),
     is_cex BOOLEAN NOT NULL DEFAULT FALSE,
     is_tracked BOOLEAN NOT NULL DEFAULT TRUE,
+    is_warm BOOLEAN NOT NULL DEFAULT FALSE,
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -25,6 +26,10 @@ CREATE INDEX IF NOT EXISTS idx_tracked_wallets_multi_hop_label
 
 CREATE INDEX IF NOT EXISTS idx_tracked_wallets_tracked
     ON tracked_wallets (is_tracked);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_wallets_warm
+    ON tracked_wallets (is_warm)
+    WHERE is_warm = TRUE;
 
 
 CREATE TABLE IF NOT EXISTS funding_ledger (
@@ -53,6 +58,23 @@ CREATE INDEX IF NOT EXISTS idx_funding_ledger_source
 CREATE INDEX IF NOT EXISTS idx_funding_ledger_lineage
     ON funding_ledger (lineage_id, hop_depth);
 
+
+CREATE TABLE IF NOT EXISTS token_buy_events (
+    id BIGSERIAL PRIMARY KEY,
+    wallet_address VARCHAR(44) NOT NULL,
+    token_mint VARCHAR(44) NOT NULL,
+    transaction_signature VARCHAR(128) NOT NULL UNIQUE,
+    observed_at TIMESTAMPTZ NOT NULL,
+    executed_price NUMERIC(38, 18) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT token_buy_events_price_check CHECK (executed_price >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_buy_events_token_time
+    ON token_buy_events (token_mint, observed_at);
+
+CREATE INDEX IF NOT EXISTS idx_token_buy_events_wallet_time
+    ON token_buy_events (wallet_address, observed_at);
 
 CREATE TABLE IF NOT EXISTS token_metadata (
     mint_address VARCHAR(44) PRIMARY KEY,
