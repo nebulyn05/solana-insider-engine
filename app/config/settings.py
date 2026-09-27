@@ -17,6 +17,7 @@ class Settings:
     helius_grpc_endpoint: str | None
     shyft_api_key: str | None
     solana_tracker_api_key: str | None
+    helius_cex_wallets: str | None
 
 
 def _required(name: str) -> str:
@@ -36,4 +37,5 @@ settings = Settings(
     helius_grpc_endpoint=os.getenv("HELIUS_GRPC_ENDPOINT") or None,
     shyft_api_key=os.getenv("SHYFT_API_KEY") or None,
     solana_tracker_api_key=os.getenv("SOLANA_TRACKER_API_KEY") or None,
+    helius_cex_wallets=os.getenv("HELIUS_CEX_WALLETS") or None,
 )
