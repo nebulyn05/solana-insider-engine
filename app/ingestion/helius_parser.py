@@ -33,11 +33,7 @@ def _decimals(tx: dict[str, Any], mint: str) -> int:
     return 0
 
 
-def decode_with_helius(
-    wallet: str,
-    signature: str,
-    tx: dict[str, Any],
-) -> list[DexTrade]:
+def decode_with_helius(wallet: str, signature: str, tx: dict[str, Any]) -> list[DexTrade]:
     api_key = os.getenv("HELIUS_API_KEY")
     if not api_key:
         return []
@@ -104,12 +100,13 @@ def decode_with_helius(
             confidence=Decimal("0.99"),
             evidence={
                 "signature": signature,
-                "decoder": "helius-parsed-events-v1",
+                "decoder": "helius-parsed-events-v2",
                 "summary_type": summary.get("type"),
                 "description": description,
                 "protocol": protocol,
                 "input_mint": input_mint,
                 "output_mint": output_mint,
+                "output_decimals": output_decimals,
             },
         )
     ]
