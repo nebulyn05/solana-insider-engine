@@ -21,3 +21,8 @@ CREATE INDEX IF NOT EXISTS idx_token_buy_events_token_time
 
 CREATE INDEX IF NOT EXISTS idx_token_buy_events_wallet_time
     ON token_buy_events (wallet_address, observed_at);
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_simulated_trades_signal_id
+    ON simulated_trades (signal_id)
+    WHERE signal_id IS NOT NULL;
