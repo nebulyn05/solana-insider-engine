@@ -15,6 +15,7 @@ from app.ingestion.dex_decoder import DexTrade, decode_wallet_swap
 from app.ingestion.helius_parser import decode_with_helius
 from app.events.bus import EngineEvent
 from app.runtime.pipeline import LivePaperPipeline
+from app.intelligence.sell_distribution import detect_sell, persist_sell_observations
 
 LOGGER = logging.getLogger("mainnet.wallet_stream")
 MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
@@ -213,6 +214,11 @@ def _process_transaction(
 
     if not _claim_transaction(signature, tx.get("slot"), tx.get("blockTime"), wallet, tx):
         return
+
+    sell_observations = detect_sell(wallet, tx, signature)
+    if sell_observations:
+        count = persist_sell_observations(sell_observations)
+        LOGGER.info("SELL_OBSERVED wallet=%s signature=%s count=%s", wallet, signature, count)
 
     trades = _decode_trades(wallet, signature, tx)
     for trade in trades:
