@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS tracked_wallets (
     id BIGSERIAL PRIMARY KEY,
     wallet_address VARCHAR(44) NOT NULL UNIQUE,
-    network VARCHAR(16) NOT NULL DEFAULT 'devnet',
+    network VARCHAR(16) NOT NULL DEFAULT 'mainnet-beta',
     label VARCHAR(128),
     cex_label VARCHAR(128),
     multi_hop_label VARCHAR(128),
@@ -83,7 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_token_buy_events_wallet_time
 
 CREATE TABLE IF NOT EXISTS token_metadata (
     mint_address VARCHAR(44) PRIMARY KEY,
-    network VARCHAR(16) NOT NULL DEFAULT 'devnet',
+    network VARCHAR(16) NOT NULL DEFAULT 'mainnet-beta',
     name VARCHAR(256),
     symbol VARCHAR(64),
     decimals SMALLINT NOT NULL DEFAULT 0,
@@ -178,6 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_social_posts_token_time
 
 
 -- Optimization layer schema. Keep this in sync with migrations/006_engine_optimization.sql.
+-- Mainnet is the default observation network; historical devnet rows may remain.
 ALTER TABLE simulated_trades
     ADD COLUMN IF NOT EXISTS outcome VARCHAR(24),
     ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(64),
@@ -192,7 +193,7 @@ ALTER TABLE simulated_trades
 
 CREATE TABLE IF NOT EXISTS wallet_features (
     wallet_address VARCHAR(44) PRIMARY KEY,
-    network VARCHAR(16) NOT NULL DEFAULT 'devnet',
+    network VARCHAR(16) NOT NULL DEFAULT 'mainnet-beta',
     observed_buy_count BIGINT NOT NULL DEFAULT 0,
     distinct_token_count BIGINT NOT NULL DEFAULT 0,
     first_seen_at TIMESTAMPTZ,

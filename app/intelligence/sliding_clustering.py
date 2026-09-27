@@ -31,7 +31,6 @@ def find_best_sliding_window_cluster(
     min_warm_wallets: int = 3,
     window_seconds: int = 30,
 ) -> SlidingCluster | None:
-    """Find the densest true sliding window, rather than an anchor window."""
     if not token_mint:
         raise ValueError("token_mint is required")
     if min_warm_wallets < 2:
@@ -44,23 +43,21 @@ def find_best_sliding_window_cluster(
 
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute(
-            """SELECT e.wallet_address, e.observed_at, e.executed_price
+            """SELECT e.wallet_address,e.observed_at,e.executed_price
                FROM token_buy_events e
                JOIN tracked_wallets w
                  ON w.wallet_address=e.wallet_address
-                AND w.network='devnet'
+                AND w.network='mainnet-beta'
                WHERE e.token_mint=%s
-                 AND e.observed_at >= %s
-                 AND e.observed_at <= %s
-                 AND w.is_tracked=TRUE
-                 AND w.is_warm=TRUE
-               ORDER BY e.observed_at ASC, e.id ASC""",
+                 AND e.observed_at BETWEEN %s AND %s
+                 AND w.is_tracked=TRUE AND w.is_warm=TRUE
+               ORDER BY e.observed_at ASC,e.id ASC""",
             (token_mint, start, end),
         )
         rows = cursor.fetchall()
 
     events = deque()
-    best: tuple[int, datetime, datetime, tuple[str, ...], Decimal] | None = None
+    best = None
     window = timedelta(seconds=window_seconds)
 
     for wallet, observed_at, price in rows:
@@ -69,7 +66,7 @@ def find_best_sliding_window_cluster(
         while events and event[1] - events[0][1] > window:
             events.popleft()
 
-        by_wallet: dict[str, tuple[datetime, Decimal]] = {}
+        by_wallet = {}
         for w, when, p in events:
             by_wallet.setdefault(w, (when, p))
 
@@ -80,9 +77,9 @@ def find_best_sliding_window_cluster(
         last = max(v[0] for v in by_wallet.values())
         prices = [v[1] for v in by_wallet.values()]
         count = len(by_wallet)
-        score = (count, -int((last - first).total_seconds() * 1000))
-        if best is None or score > (best[0], -int((best[2] - best[1]).total_seconds() * 1000)):
-            best = (count, first, last, tuple(sorted(by_wallet)), sum(prices, Decimal("0")) / Decimal(count))
+        score = (count, -int((last-first).total_seconds()*1000))
+        if best is None or score > (best[0], -int((best[2]-best[1]).total_seconds()*1000)):
+            best = (count, first, last, tuple(sorted(by_wallet)), sum(prices, Decimal("0"))/Decimal(count))
 
     if best is None:
         return None
