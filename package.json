@@ -1,0 +1,19 @@
+{
+  "name": "solana-insider-engine-onchain-builder",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:orca-shadow": "tsx scripts/build_orca_shadow.ts"
+  },
+  "dependencies": {
+    "@orca-so/whirlpools": "8.0.1",
+    "@solana/kit": "^2.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
