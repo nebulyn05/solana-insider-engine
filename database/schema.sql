@@ -66,8 +66,13 @@ CREATE TABLE IF NOT EXISTS token_buy_events (
     transaction_signature VARCHAR(128) NOT NULL UNIQUE,
     observed_at TIMESTAMPTZ NOT NULL,
     executed_price NUMERIC(38, 18) NOT NULL,
+    confidence_level VARCHAR(32) NOT NULL DEFAULT 'BASE',
+    social_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    social_confirmed_at TIMESTAMPTZ,
+    social_post_id BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT token_buy_events_price_check CHECK (executed_price >= 0)
+    CONSTRAINT token_buy_events_price_check CHECK (executed_price >= 0),
+    CONSTRAINT token_buy_events_confidence_check CHECK (confidence_level IN ('BASE', 'SOCIAL_CONFIRMED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_buy_events_token_time
