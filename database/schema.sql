@@ -17,20 +17,13 @@ CREATE TABLE IF NOT EXISTS tracked_wallets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracked_wallets_cex_label
-    ON tracked_wallets (cex_label)
-    WHERE cex_label IS NOT NULL;
-
+    ON tracked_wallets (cex_label) WHERE cex_label IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tracked_wallets_multi_hop_label
-    ON tracked_wallets (multi_hop_label)
-    WHERE multi_hop_label IS NOT NULL;
-
+    ON tracked_wallets (multi_hop_label) WHERE multi_hop_label IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tracked_wallets_tracked
     ON tracked_wallets (is_tracked);
-
 CREATE INDEX IF NOT EXISTS idx_tracked_wallets_warm
-    ON tracked_wallets (is_warm)
-    WHERE is_warm = TRUE;
-
+    ON tracked_wallets (is_warm) WHERE is_warm = TRUE;
 
 CREATE TABLE IF NOT EXISTS funding_ledger (
     id BIGSERIAL PRIMARY KEY,
@@ -48,16 +41,9 @@ CREATE TABLE IF NOT EXISTS funding_ledger (
     CONSTRAINT funding_ledger_amount_check CHECK (amount >= 0),
     CONSTRAINT funding_ledger_hop_depth_check CHECK (hop_depth >= 0)
 );
-
-CREATE INDEX IF NOT EXISTS idx_funding_ledger_destination
-    ON funding_ledger (destination_wallet_id, observed_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_funding_ledger_source
-    ON funding_ledger (source_wallet_id, observed_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_funding_ledger_lineage
-    ON funding_ledger (lineage_id, hop_depth);
-
+CREATE INDEX IF NOT EXISTS idx_funding_ledger_destination ON funding_ledger(destination_wallet_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_funding_ledger_source ON funding_ledger(source_wallet_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_funding_ledger_lineage ON funding_ledger(lineage_id, hop_depth);
 
 CREATE TABLE IF NOT EXISTS token_buy_events (
     id BIGSERIAL PRIMARY KEY,
@@ -74,12 +60,8 @@ CREATE TABLE IF NOT EXISTS token_buy_events (
     CONSTRAINT token_buy_events_price_check CHECK (executed_price >= 0),
     CONSTRAINT token_buy_events_confidence_check CHECK (confidence_level IN ('BASE', 'SOCIAL_CONFIRMED'))
 );
-
-CREATE INDEX IF NOT EXISTS idx_token_buy_events_token_time
-    ON token_buy_events (token_mint, observed_at);
-
-CREATE INDEX IF NOT EXISTS idx_token_buy_events_wallet_time
-    ON token_buy_events (wallet_address, observed_at);
+CREATE INDEX IF NOT EXISTS idx_token_buy_events_token_time ON token_buy_events(token_mint, observed_at);
+CREATE INDEX IF NOT EXISTS idx_token_buy_events_wallet_time ON token_buy_events(wallet_address, observed_at);
 
 CREATE TABLE IF NOT EXISTS token_metadata (
     mint_address VARCHAR(44) PRIMARY KEY,
@@ -94,11 +76,7 @@ CREATE TABLE IF NOT EXISTS token_metadata (
     CONSTRAINT token_metadata_network_check CHECK (network IN ('devnet', 'mainnet-beta')),
     CONSTRAINT token_metadata_decimals_check CHECK (decimals BETWEEN 0 AND 18)
 );
-
-CREATE INDEX IF NOT EXISTS idx_token_metadata_symbol
-    ON token_metadata (symbol)
-    WHERE symbol IS NOT NULL;
-
+CREATE INDEX IF NOT EXISTS idx_token_metadata_symbol ON token_metadata(symbol) WHERE symbol IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS simulated_trades (
     id BIGSERIAL PRIMARY KEY,
@@ -128,20 +106,10 @@ CREATE TABLE IF NOT EXISTS simulated_trades (
     CONSTRAINT simulated_trades_slippage_check CHECK (slippage_bps >= 0),
     CONSTRAINT simulated_trades_fees_check CHECK (fees >= 0)
 );
-
-CREATE INDEX IF NOT EXISTS idx_simulated_trades_wallet
-    ON simulated_trades (wallet_id, entry_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_simulated_trades_token
-    ON simulated_trades (token_mint, entry_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_simulated_trades_status
-    ON simulated_trades (status);
-
-CREATE INDEX IF NOT EXISTS idx_simulated_trades_signal
-    ON simulated_trades (signal_id)
-    WHERE signal_id IS NOT NULL;
-
+CREATE INDEX IF NOT EXISTS idx_simulated_trades_wallet ON simulated_trades(wallet_id, entry_at DESC);
+CREATE INDEX IF NOT EXISTS idx_simulated_trades_token ON simulated_trades(token_mint, entry_at DESC);
+CREATE INDEX IF NOT EXISTS idx_simulated_trades_status ON simulated_trades(status);
+CREATE INDEX IF NOT EXISTS idx_simulated_trades_signal ON simulated_trades(signal_id) WHERE signal_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS social_sources (
     id BIGSERIAL PRIMARY KEY,
@@ -155,7 +123,6 @@ CREATE TABLE IF NOT EXISTS social_sources (
     CONSTRAINT social_sources_type_check CHECK (source_type IN ('x', 'telegram')),
     CONSTRAINT social_sources_key_unique UNIQUE (source_type, source_key)
 );
-
 CREATE TABLE IF NOT EXISTS social_posts (
     id BIGSERIAL PRIMARY KEY,
     source_id BIGINT NOT NULL REFERENCES social_sources(id) ON DELETE CASCADE,
@@ -167,18 +134,11 @@ CREATE TABLE IF NOT EXISTS social_posts (
     token_mints TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT social_posts_external_unique UNIQUE (source_id, external_id)
+    CONSTRAINT social_posts_external_unique UNIQUE(source_id, external_id)
 );
+CREATE INDEX IF NOT EXISTS idx_social_posts_source_time ON social_posts(source_id, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_social_posts_token_time ON social_posts USING GIN(token_mints);
 
-CREATE INDEX IF NOT EXISTS idx_social_posts_source_time
-    ON social_posts (source_id, published_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_social_posts_token_time
-    ON social_posts USING GIN (token_mints);
-
-
--- Optimization layer schema. Keep this in sync with migrations/006_engine_optimization.sql.
--- Mainnet is the default observation network; historical devnet rows may remain.
 ALTER TABLE simulated_trades
     ADD COLUMN IF NOT EXISTS outcome VARCHAR(24),
     ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(64),
@@ -235,5 +195,54 @@ CREATE TABLE IF NOT EXISTS replay_events (
     event_type VARCHAR(32) NOT NULL,
     event_at TIMESTAMPTZ NOT NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-    UNIQUE (replay_run_id, sequence_no)
+    UNIQUE(replay_run_id, sequence_no)
 );
+
+-- Live engine hardening.
+CREATE TABLE IF NOT EXISTS stream_checkpoints (
+    stream_name VARCHAR(64) PRIMARY KEY,
+    last_slot BIGINT,
+    last_signature VARCHAR(128),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS observed_transactions (
+    signature VARCHAR(128) PRIMARY KEY,
+    slot BIGINT,
+    block_time TIMESTAMPTZ,
+    observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status VARCHAR(16) NOT NULL DEFAULT 'OBSERVED',
+    decoder_version VARCHAR(32) NOT NULL DEFAULT 'v1',
+    dex_program VARCHAR(64),
+    wallet_address VARCHAR(44),
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_observed_transactions_slot ON observed_transactions(slot DESC);
+CREATE INDEX IF NOT EXISTS idx_observed_transactions_wallet_time ON observed_transactions(wallet_address, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS dex_trade_observations (
+    id BIGSERIAL PRIMARY KEY,
+    transaction_signature VARCHAR(128) NOT NULL REFERENCES observed_transactions(signature) ON DELETE CASCADE,
+    wallet_address VARCHAR(44) NOT NULL,
+    dex_name VARCHAR(64) NOT NULL,
+    program_id VARCHAR(64),
+    side VARCHAR(8) NOT NULL,
+    input_mint VARCHAR(44),
+    output_mint VARCHAR(44),
+    input_amount NUMERIC(38,18),
+    output_amount NUMERIC(38,18),
+    price_sol NUMERIC(38,18),
+    confidence NUMERIC(6,5) NOT NULL DEFAULT 0,
+    evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+    observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(transaction_signature, wallet_address, dex_name, output_mint)
+);
+CREATE INDEX IF NOT EXISTS idx_dex_trade_observations_wallet_time ON dex_trade_observations(wallet_address, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dex_trade_observations_output_time ON dex_trade_observations(output_mint, observed_at DESC);
+
+ALTER TABLE token_buy_events
+    ADD COLUMN IF NOT EXISTS dex_name VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS dex_program_id VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS detection_confidence NUMERIC(6,5) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS detection_evidence JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_token_buy_events_dex ON token_buy_events(dex_name, observed_at DESC);
