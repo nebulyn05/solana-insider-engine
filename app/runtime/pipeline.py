@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from app.database.connection import get_connection
 from app.events.bus import EngineEvent
@@ -44,7 +45,6 @@ def _cluster_features(token_mint: str, wallets: tuple[str, ...], window_start: d
         "funding_lineage": Decimal("0"),
         "shared_first_funder": Decimal("0"),
         "deployer_relation": Decimal("0"),
-        "wallet_reputation": Decimal(str(reputation or 0)),
     }
 
 
@@ -72,6 +72,7 @@ def _insert_paper_entry(
         ),
     )
     quantity = notional / estimate.execution_price
+    trade_id = str(uuid4())
 
     with get_connection() as conn, conn.cursor() as cursor:
         cursor.execute(
@@ -97,18 +98,17 @@ def _insert_paper_entry(
                 signal_id,signal_created_at,detected_at,
                 entry_latency_ms,decision_latency_ms,execution_latency_ms,
                 total_latency_ms,metadata)
-               VALUES(gen_random_uuid(),%s,%s,'BUY','OPEN',%s,%s,%s,%s,%s,
-                      %s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+               VALUES(%s,%s,%s,'BUY','OPEN',%s,%s,%s,%s,%s,
+                      %s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                ON CONFLICT(signal_id) DO NOTHING
                RETURNING trade_id""",
             (
-                wallet_id, token_mint, quantity, requested_price,
-                estimate.execution_price, notional,
-                notional, estimate.total_bps,
+                trade_id, wallet_id, token_mint, quantity, requested_price,
+                estimate.execution_price, notional, notional, estimate.total_bps,
                 estimate.execution_price - requested_price,
                 signal_id, detected_at, detected_at,
-                Decimal("0"), Decimal("0"), latency,
-                latency, json.dumps({
+                Decimal("0"), Decimal("0"), latency, latency,
+                json.dumps({
                     **metadata,
                     "detector": "live_mainnet_pipeline",
                     "execution": "paper",
