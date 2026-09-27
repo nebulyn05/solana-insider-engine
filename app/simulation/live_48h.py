@@ -94,6 +94,9 @@ def _insert_simulated_entry(
     signal_created_at = signal_created_at or _utc_now()
     detected_at = _utc_now()
     execution_at = _utc_now()
+    entry_latency_ms = Decimal(str((detected_at - signal_created_at).total_seconds() * 1000))
+    decision_latency_ms = Decimal(str((execution_at - detected_at).total_seconds() * 1000))
+    total_latency_ms = Decimal(str((execution_at - signal_created_at).total_seconds() * 1000))
 
     metadata = json.dumps({
         "detector": "phase5_48h_simulation",
@@ -137,10 +140,7 @@ def _insert_simulated_entry(
                 signal_id,
                 signal_created_at,
                 detected_at,
-                (EXTRACT(EPOCH FROM (detected_at - signal_created_at)) * 1000),
-                (EXTRACT(EPOCH FROM (execution_at - detected_at)) * 1000),
-                (EXTRACT(EPOCH FROM (execution_at - detected_at)) * 1000),
-                (EXTRACT(EPOCH FROM (execution_at - signal_created_at)) * 1000),
+                %s, %s, %s, %s,
                 metadata,
             ),
         )
